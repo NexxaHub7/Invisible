@@ -1,0 +1,337 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInput = game:GetService("UserInputService")
+local Tween = game:GetService("TweenService")
+
+local yo = Players.LocalPlayer
+local trans = 0.4
+
+local modControl
+task.spawn(function()
+	local ok, m = pcall(function()
+		return require(yo:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
+	end)
+	if ok and m then
+		modControl = m:GetControls()
+	end
+end)
+
+local sg = Instance.new("ScreenGui")
+sg.Name = "inv_" .. tostring(math.random(1000, 9999))
+sg.ResetOnSpawn = false
+sg.IgnoreGuiInset = true
+sg.DisplayOrder = 999
+sg.Parent = yo:WaitForChild("PlayerGui")
+
+local boton = Instance.new("TextButton")
+boton.AnchorPoint = Vector2.new(0.5, 0.5)
+boton.Size = UDim2.fromOffset(100, 100)
+boton.Position = UDim2.new(0, 70, 0.5, 0)
+boton.BackgroundColor3 = Color3.fromRGB(55, 40, 90)
+boton.AutoButtonColor = false
+boton.Font = Enum.Font.GothamBold
+boton.TextSize = 15
+boton.TextColor3 = Color3.new(1, 1, 1)
+boton.RichText = true
+boton.TextWrapped = true
+boton.Text = "👻\nInvisible:\n<b>OFF</b>"
+boton.Parent = sg
+
+Instance.new("UICorner", boton).CornerRadius = UDim.new(1, 0)
+
+local borde = Instance.new("UIStroke", boton)
+borde.Thickness = 3
+borde.Color = Color3.fromRGB(170, 130, 255)
+
+local degradado = Instance.new("UIGradient", boton)
+degradado.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(150, 150, 150))
+degradado.Rotation = 45
+
+local function pintar(activo)
+	boton.Text = activo and "👻\nInvisible:\n<b>ON</b>" or "👻\nInvisible:\n<b>OFF</b>"
+	local info = TweenInfo.new(0.25)
+	Tween:Create(boton, info, {
+		BackgroundColor3 = activo and Color3.fromRGB(30, 150, 110) or Color3.fromRGB(55, 40, 90)
+	}):Play()
+	Tween:Create(borde, info, {
+		Color = activo and Color3.fromRGB(110, 255, 200) or Color3.fromRGB(170, 130, 255)
+	}):Play()
+end
+
+local activo = false
+local clon, humClon, rootClon
+local cfInicial, posOculta
+local conexiones = {}
+local animActuales = {}
+local enUso
+
+local function limpiarConexiones()
+	for _, c in ipairs(conexiones) do
+		c:Disconnect()
+	end
+	table.clear(conexiones)
+end
+
+local function borrarClon()
+	enUso = nil
+	table.clear(animActuales)
+	if clon then
+		clon:Destroy()
+	end
+	clon, humClon, rootClon = nil, nil, nil
+end
+
+local function animDelJugador(carpeta, nombre, porDefecto)
+	local anim = yo.Character and yo.Character:FindFirstChild("Animate")
+	local c = anim and anim:FindFirstChild(carpeta)
+	local v = c and c:FindFirstChild(nombre)
+	if v and v:IsA("Animation") and v.AnimationId ~= "" then
+		return v.AnimationId
+	end
+	return porDefecto
+end
+
+local function cargarAnim(id)
+	local anim = Instance.new("Animation")
+	anim.AnimationId = id
+	local animador = humClon:FindFirstChildOfClass("Animator") or Instance.new("Animator", humClon)
+	local ok, pista = pcall(function()
+		return animador:LoadAnimation(anim)
+	end)
+	if ok then
+		return pista
+	end
+end
+
+local function prepararAnimaciones()
+	local r15 = humClon.RigType == Enum.HumanoidRigType.R15
+	animActuales.idle = cargarAnim(animDelJugador("idle", "Animation1", r15 and "rbxassetid://507766666" or "rbxassetid://180435571"))
+	animActuales.walk = cargarAnim(animDelJugador("walk", "WalkAnim", r15 and "rbxassetid://507777826" or "rbxassetid://180426354"))
+	animActuales.jump = cargarAnim(animDelJugador("jump", "JumpAnim", r15 and "rbxassetid://507765000" or "rbxassetid://125750702"))
+	animActuales.fall = cargarAnim(animDelJugador("fall", "FallAnim", r15 and "rbxassetid://507767968" or "rbxassetid://180436148"))
+	for _, n in ipairs({ "idle", "walk", "fall" }) do
+		if animActuales[n] then
+			animActuales[n].Looped = true
+		end
+	end
+end
+
+local function animar(nombre)
+	local pista = animActuales[nombre]
+	if pista == enUso then return end
+	if enUso then enUso:Stop(0.15) end
+	enUso = pista
+	if pista then pista:Play(0.15) end
+end
+
+local function desactivar()
+	if not activo then return end
+	activo = false
+	limpiarConexiones()
+
+	local cf = cfInicial
+	if rootClon and rootClon.Parent and humClon and humClon.Health > 0 then
+		cf = rootClon.CFrame
+	end
+
+	local char = yo.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+	if root and hum and hum.Health > 0 then
+		char:PivotTo(cf)
+		root.CFrame = cf
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		workspace.CurrentCamera.CameraSubject = hum
+		root.Anchored = false
+
+		local cuenta = 0
+		local fijar
+		fijar = RunService.Heartbeat:Connect(function()
+			cuenta += 1
+			if root.Parent then
+				root.CFrame = cf
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
+			end
+			if cuenta >= 4 then
+				fijar:Disconnect()
+			end
+		end)
+	end
+
+	borrarClon()
+	pintar(false)
+end
+
+local function resetear()
+	if not activo then return end
+	activo = false
+	limpiarConexiones()
+	borrarClon()
+	pintar(false)
+end
+
+local function activar()
+	local char = yo.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not hum or not root or hum.Health <= 0 then return end
+
+	cfInicial = root.CFrame
+	char.Archivable = true
+	local copia = char:Clone()
+	if not copia then return end
+
+	for _, d in ipairs(copia:GetDescendants()) do
+		if d:IsA("LuaSourceContainer") or d:IsA("Tool") or d:IsA("ForceField") then
+			d:Destroy()
+		end
+	end
+	copia.Name = yo.Name .. "_proxy"
+
+	local ch = copia:FindFirstChildOfClass("Humanoid")
+	local cr = copia:FindFirstChild("HumanoidRootPart")
+	if not ch or not cr then
+		copia:Destroy()
+		return
+	end
+	copia.PrimaryPart = cr
+	ch.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	ch.Health = ch.MaxHealth
+
+	for _, d in ipairs(copia:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CanQuery = false
+			if d.Name ~= "HumanoidRootPart" then
+				d.Transparency = math.max(d.Transparency, trans)
+			end
+		elseif d:IsA("Decal") then
+			d.Transparency = math.max(d.Transparency, trans)
+		end
+	end
+
+	copia:PivotTo(cfInicial)
+	copia.Parent = workspace
+	clon, humClon, rootClon = copia, ch, cr
+
+	local y = workspace.FallenPartsDestroyHeight + 100
+	if y < -100000 then
+		y = -5000
+	end
+	posOculta = Vector3.new(cfInicial.X, y, cfInicial.Z)
+	char:PivotTo(CFrame.new(posOculta))
+	root.Anchored = true
+	root.AssemblyLinearVelocity = Vector3.zero
+
+	activo = true
+	pintar(true)
+	prepararAnimaciones()
+	animar("idle")
+	workspace.CurrentCamera.CameraSubject = humClon
+
+	table.insert(conexiones, RunService.RenderStepped:Connect(function()
+		if not activo then return end
+
+		if not clon or not clon.Parent or humClon.Health <= 0 then
+			desactivar()
+			return
+		end
+
+		local r = yo.Character and yo.Character:FindFirstChild("HumanoidRootPart")
+		if r then
+			if not r.Anchored then
+				r.Anchored = true
+			end
+			if (r.Position - posOculta).Magnitude > 5 then
+				yo.Character:PivotTo(CFrame.new(posOculta))
+			end
+		end
+
+		local cam = workspace.CurrentCamera
+		if cam.CameraSubject ~= humClon then
+			cam.CameraSubject = humClon
+		end
+
+		if modControl then
+			humClon:Move(modControl:GetMoveVector(), true)
+		else
+			local rh = yo.Character and yo.Character:FindFirstChildOfClass("Humanoid")
+			humClon:Move(rh and rh.MoveDirection or Vector3.zero, false)
+		end
+
+		local st = humClon:GetState()
+		local vel = rootClon.AssemblyLinearVelocity
+		local velPlana = Vector3.new(vel.X, 0, vel.Z).Magnitude
+
+		if st == Enum.HumanoidStateType.Jumping then
+			animar("jump")
+		elseif st == Enum.HumanoidStateType.Freefall then
+			animar("fall")
+		elseif velPlana > 0.5 then
+			animar("walk")
+			if animActuales.walk then
+				animActuales.walk:AdjustSpeed(math.clamp(velPlana / 14, 0.3, 2))
+			end
+		else
+			animar("idle")
+		end
+	end))
+
+	table.insert(conexiones, UserInput.JumpRequest:Connect(function()
+		if activo and humClon and humClon.Health > 0 then
+			humClon:ChangeState(Enum.HumanoidStateType.Jumping)
+		end
+	end))
+
+	table.insert(conexiones, hum.Died:Connect(resetear))
+end
+
+local function alternar()
+	if activo then
+		desactivar()
+	else
+		activar()
+	end
+end
+
+yo.CharacterRemoving:Connect(resetear)
+
+local arrastrando = false
+local seMovio = false
+local posInicial
+local posBoton
+
+boton.InputBegan:Connect(function(entrada)
+	if entrada.UserInputType == Enum.UserInputType.MouseButton1 or entrada.UserInputType == Enum.UserInputType.Touch then
+		arrastrando = true
+		seMovio = false
+		posInicial = entrada.Position
+		posBoton = boton.Position
+		entrada.Changed:Connect(function()
+			if entrada.UserInputState == Enum.UserInputState.End then
+				arrastrando = false
+				if not seMovio then
+					alternar()
+				end
+			end
+		end)
+	end
+end)
+
+UserInput.InputChanged:Connect(function(entrada)
+	if not arrastrando then return end
+	if entrada.UserInputType == Enum.UserInputType.MouseMovement or entrada.UserInputType == Enum.UserInputType.Touch then
+		local d = entrada.Position - posInicial
+		if d.Magnitude > 6 then
+			seMovio = true
+		end
+		if seMovio then
+			boton.Position = UDim2.new(
+				posBoton.X.Scale, posBoton.X.Offset + d.X,
+				posBoton.Y.Scale, posBoton.Y.Offset + d.Y
+			)
+		end
+	end
+end)
